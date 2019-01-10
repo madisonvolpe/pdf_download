@@ -1,79 +1,294 @@
-#### Analysis ####
+#### Analysis #### 
 
 library(plyr)
 library(tidyverse)
-data <- read_csv("bookings_clean.csv")
+library(lubridate)
 
-# create ID variable  
-data$uid <- 1:nrow(data)
+data <- read_csv("RelevantBookings.csv")
+main_data <- read_csv("bookings_clean.csv") #this includes all datapoints 
 
-# string split columns by comma into new rows
+## Convert to Date 
 
-data_analysis <- data %>% 
-  select(Full.Name, Last.Booking.Date, Last.Release.Date, Booking.Type, In.Jail, counts,
-         agency, Charges, uid, charges_clean) %>%
-  mutate(all_charges = strsplit(as.character(charges_clean), ",")) %>% 
-  unnest(all_charges)
+data$Last.Booking.Date <- mdy(data$Last.Booking.Date)
+data$Last.Release.Date <- mdy(data$Last.Release.Date)
 
-# Regex for License Suspensions - from patterns we noticed that ALMOST ALL of the charges
-# have "LIC" in their charge description 
+main_data$Last.Booking.Date <- mdy(main_data$Last.Booking.Date)
+main_data$Last.Release.Date <- mdy(main_data$Last.Release.Date)
 
-  ## Obtain IDs where grepl("LIC", data_analysis$charges_clean) == TRUE
+range(data$Last.Booking.Date) # one year of data: 2017-12-31, 2019-01-01
+range(main_data$Last.Booking.Date) # one year of data: 2017-12-31, 2019-01-01
 
-  LIC_ids <- data_analysis %>%
-    filter(grepl("LIC", charges_clean)) %>%
+## Create a short form of relevant data i.e: (warrants not unlisted)
+main_data$uid <- 1:nrow(main_data)
+data_short <- main_data %>% filter(uid %in% data$uid)
+
+  # check
+  nrow(data_short) == length(unique(data$uid))
+
+## Remove double entries (recommits) ?
+  
+  sum(duplicated(data_short)) #no duplicates, but there may be recommits
+  sum(duplicated(data_short$Full.Name))
+  
+  #pick up duplicate names and booking dates
+  data_dups <- data_short[c("Full.Name", "Last.Booking.Date")]
+  data_dups <- data_dups[duplicated(data_dups),]
+  data_dups <- filter(data_short, Full.Name %in% data_dups$Full.Name & Last.Booking.Date %in% data_dups$Last.Booking.Date)
+  data_dups 
+  
+  #we can see that the duplicates arise from recommits so we should remove them from both datasets 
+  data_short <- data_short %>% filter(Booking.Type != "RECOMMIT")
+  data <- data %>% filter(Booking.Type != "RECOMMIT")
+  
+  #final check 
+  data_dups <- data_short[c("Full.Name", "Last.Booking.Date")]
+  data_dups <- data_dups[duplicated(data_dups),]
+  nrow(data_dups) #equal to 0 so no longer duplicates... 
+  
+  rm(data_dups)
+  
+## Identifying those w. One Offense or with all "similar offenses" 
+
+  # Those with one relevant charge, will either have one row or two rows for all_charges (some of the charges go onto next line)
+  
+  OneCharge <- data %>% 
+    group_by(uid) %>%
+    count(uid) %>%
+    filter(n==1 | n == 2) %>%
+    select(uid)
+  
+  # Those with all similar offenses I will have to go indepth and review everything 
+  
+    # 395 - VOP/DRIVING WHILE LICENSE REVOKED,(HABITUAL OFFENDER),VOP/FAILURE TO REGISTER MOTOR VEHICLE,
+            # NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF
+    
+    # 548 - FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED,FTA/UNLAWFULL DISPLAY OF DRIVERS,LICENSE
+  
+    # 601 - MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE,FAIL TO REGISTER MOTOR VEHICLE
+    
+    # 916 - OUT-OF-COUNTY WARRANT/WAKULLA CO,SO/ CASE# 15-224/ VOP/DWLSR,
+            # NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF
+  
+    # 925 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF,FAIL TO REGISTER MOTOR VEHICLE
+    
+    # 1041 - VOP/MOVING TRAFFIC VIOL DRIVE WITH,SUSPENDED REVOKED LICENSE,VOP/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+    
+    # 1051 - MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE,NONMOVING TRAFFIC VIOL ATTACH,
+            # REGISTRATION LICENSE PLATE NOT,ASSIGNED
+  
+    # 1148 - HOLD FOR PINELLAS COUNTY SO,FAVOR TRANSPORT/PINELLAS COUNTY,WARRANT/FTA/DWLSR/#A1VF1QE
+
+    # 1233 - PASCO CO,SO/CASE#2018CF006003CFAXWS/DWLSR,HABITUAL/OUT-OF-COUNTY WARRANT
+    
+    # 1336 - OUT-OF-COUNTY WARRANT/MIAMI DADE,PD/CASE #F17006790/VOP,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 1468 - OUT-OF-COUNTY WARRANT///BAY COUNTY,SO/HABITUAL TRAFFIC,OFFENDER//CASE#153373B/NO BOND,
+            # NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP HABITUTAL
+  
+    # 1542 - COLOMBIA-COUNTY WARRANT/VOP/DRIVING,W/O LICENSE SUSPENDEDOR REVOKED/CASE,#1701959CTA
+  
+    # 1716- FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED,FTA/ATTACHING IMPROPERLICENSE PLATE
+
+    # 1797 - OUT-OF-COUNTY WARRANT/ ALACHUA CO,SO/ CASE#012018CT001055A / DRIVE WHILE,LIC SUSP 2ND OFF
+
+    # 1818 - MOVING TRAFFIC VIOL KNOWINGLY DRIVEFLORIDA FISH AND WILDLIFE,WHILE LICE SUSPENDED REVOKEDCONSERVATION,
+      # COMMISSION,FTA/MOVING TRAFFIC VIOL OPERATE MOTORFLORIDA FISH AND WILDLIFE,VEHICLE WO VALID LICENSECONSERVATION,COMMISSION
+  
+    # 1917 - FTA/NO VALID DRIVER'S LICENSE,FTA/MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE
+
+    # 2110 - MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE,FTA/MOVING TRAFFIC VIOL OPERATE MOTOR,
+            # VEHICLE WO VALID LICENSE
+  
+    # 2121 - DRIVING WHILE LICENSE SUSPENDED OR,REVOKED,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF
+
+    # 2286 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 2ND OFF,NONMOVING TRAFFIC VIOL ATTACH,
+          # REGISTRATION LICENSE PLATE NOT,ASSIGNED
+
+    # 2381 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF,FAIL TO REGISTER MOTOR VEHICLE
+
+    # 2865 - FAIL TO REGISTER MOTOR VEHICLE,MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE
+    
+    # 3424 - MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE,FTA/NO VALID DRIVER'S LICENSE
+
+    # 3441 - VOP/OPERATE MOTOR VEHICLE WO VALID,LICENSE,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 3448 - VOP/DRIVING WHILE LICENSE REVOKED,(HABITUAL OFFENDER),NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP HABITUTAL
+
+    # 3730 - HOLD FOR GADSDEN COUNTY/ CASE# 18-,204/,VOP/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 3773 - MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE,FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP ST OFF
+
+    # 4034 - VOP/MOVING TRAFFIC VIOL OPERATE,MOTOR VEHICLE WO VALID LICENSE,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP HABITUTAL
+
+    # 4069 - FAVOR HOLD/ LEE COUNTY SO/ CASE #17-,CT-000185/ KNOWINGLY DRIVE WHILE LIC,SUSPENDED OR REVOKED
+
+    # 4150 - OUT-OF-COUNTY WARRANT//ST LUCIE CO,SO// 562017CT001691AXXXXX// FTA DWLSR,OUT-OF-COUNTY WARRANT/ST. LUCIE,COUNTY/ CASE,#562017CT001691AXXXXX/FTA/DWLS
+
+    # 4174 - FAVOR HOLD/WAKULLA COUNTY/ FOR,SCRAM UNIT,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 4450 -FAIL TO REGISTER MOTOR VEHICLE,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP HABITUTAL,
+          # COUNTERFEITING OF MTR VEH,IDENTIFICATION NUMBER PLATES OR DECAL
+  
+    # 4633 - OUT-OF-COUNTY WARRANT// BAY COUNTY,SO// CASE # 17003161CFMA// FTA DWLSR,3RD OR SUBSEQ OFFENSE
+
+    # 4656 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP HABITUTAL,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKEDHQ
+
+    # 4773 -OUT-OF-COUNTY WARRANT///GILCHRIST,COUNTY/CASE#10000051CTMA//FTA//OPERA,TE MOTOR VEHICLE WO A VALID,LICENSE//BND: 360.50,MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE
+  
+    # 4817 - OUT-OF-COUNTY WARRANT/VOP,DUI/FRANKLIN CO SO,OUT-OF-COUNTY,WARRANT/DWLSR/FRANKLIN CO SO
+    
+    # 4849 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF,NONMOVING TRAFFIC VIOL ATTACH,REGISTRATION LICENSE PLATE NOT,ASSIGNED
+
+    # 4920 - VOP/NONMOVING TRAFFIC VIOL ATTACH,REGISTRATION LICENSE PLATE NOT,ASSIGNED,VOP/MOVING TRAFFIC VIOL DRIVE WITH,SUSPENDED REVOKED LICENSE,VOP/FAIL TO REGISTER MOTOR VEHICLE
+
+    # 5036 - FTA/VOP/MOVING TRAFFIC VIOL OPERATE,MOTOR VEHICLE WO VALID LICENSE,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 5407 - MOVING TRAFFIC VIOL KNOWINGLY DRIVE,WHILE LICE SUSPENDED REVOKED,FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP 2ND OFF
+
+    # 5654- FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP ST OFF,FTA/MOVING TRAFFIC VIOL KNOWINGLY,DRIVE WHILE LICE SUSPENDED REVOKED,FTA/MARIJUANA-POSSESS NOT MORE THAN,20 GRAMS,FTA/POSSESSION OF PARAPHERNALIA
+
+    # 5715 - FTA/ATTACHING IMPROPER LICENSE PLATE,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 5890 - FTA/DRIVING WHILE LICENSE REVOKED,(HABITUAL OFFENDER),FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 6010 - MOVING TRAFFIC VIOL KNOWINGLY DRIVE,WHILE LICE SUSPENDED REVOKED , ,OUT-OF-COUNTY WARRANT/POLK,COUNTY/FTA/KNOWINGLY DRIVING WHILE ,LICENSE SUSPENDED/REVOKE/
+
+    # 6040 - OUT-OF-COUNTY WARRANT///HAMILTON,COUNTY,SO//CASE#17000294CTAXMX//FTA/DWLSR/B,ND: 500
+
+    # 6140 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF ,MOVING TRAFFIC VIOL FAIL TO HAVE REQ,ENDORSEMENT ON DRIVERS LIC
+
+    # 6187 - VOP/FTA/DRIVING WHILE LICENSE,SUSPENDED OR REVOKED,DRIVING WHILE LICENSE SUSPENDED OR,REVOKED
+
+    # 6223 - OUT-OF-COUNTY WARRANT///GADSDEN,COUNTY//FTA/CASE#17-522CFMA//NO BOND,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP HABITUTAL
+
+    # 6307 - MOVING TRAFFIC VIOL DRIVE WITH,SUSPENDED REVOKED LICENSE,FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP S
+
+    # 6405 - FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP ST OFF,FTA/MOVING TRAFFIC VIOL DRIVE WITH,SUSPENDED REVOKED LICENSE SUBSQ OFF
+
+    # 6458 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 2ND OFF ,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 6619 - FTA/NO VALID DRIVER'S LICENSE,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 6783 - NONMOVING TRAFFIC VIOL ATTACH,REGISTRATION LICENSE PLATE NOT ,ASSIGNED,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP ST OFF
+
+    # 6848 - OUT-OF-COUNTY WARRANT/CALHOUN,COUNTY SHERIFF'S OFFICE/VOP-EXPIRED,DL/DWLSR/NO DL FOR OPERATION OF,MOTORCYCLE/CASE #T16035
+
+    # 7186 - FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED,FTA/MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE
+
+    # 7225 - FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP 2ND OFF,FTA/FAIL TO REGISTER MOTOR VEHICLE,FTA/NONMOVING TRAFFIC VIOL ATTACH,REGISTRATION LICENSE PLATE NOT,ASSIGNED
+
+    # 7507 - FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP ST OFF,FTA/FORGERY OF ALTER LICENSE PLATE,VALIDATION STICKER,FTA/FAIL TO RESIGER MOTOR VEHICLE
+
+    # 7583 - FTA/DRIVING WHILE LICENSE REVOKED,(HABITUAL OFFENDER),FTA/ATTACHING IMPROPER LICENSE PLATE
+
+    # 7653 - OUT-OF-COUNTY WARRANT/MADISON,COUNTY/FTA/KNOWINGLY OPERATING,WHILE DWLS/18-22-CT,FTA/NO VALID DRIVER'S LICENSE
+
+    # 7677 - HOLD SUMTER CO SO// VOP DWLSR// CASE#,2017CT,MOVING TRAFFIC VIOL KNOWINGLY DRIVE,WHILE LICE SUSPENDED REVOKED
+
+    # 7967 - FTA/MOVING TRAFFIC VIOL FAIL TO HAVE,REQ ENDORSEMENT ON DRIVERS LIC,FTA/MOVING TRAFFIC VIOL KNOWINGLY,DRIVE WHILE LICE SUSPENDED REVOKED
+
+    # 8189 - OUT-OF-COUNTY WARRANT///GADSDEN,COUNTY SO//CASE#10-15080CTCA//VOP/,DWLSR
+
+    # 8374 - WAKULLA CO/CASE#18-,94371/FTA/DWLSROUT-OF-COUNTY,WARRANT
+
+    # 8392 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP ST OFF,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 8634 - VOP/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP 2ND OFF,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF
+
+    # 9010 - FTA/NONMOVING TRAFFIC VIOL DRIVE,WHILE LIC SUSP 2ND OFF,OUT-OF-COUNTY WARRANT/ WAKULLA,COUNTY CASE# WCSOFF
+
+    # 9034 - MOVING TRAFFIC VIOL OPERATE MOTOR,VEHICLE WO VALID LICENSE,NONMOVING TRAFFIC VIOL ATTACH,REGISTRATION LICENSE PLATE NOT,ASSIGNED
+
+    # 9056 - VOP/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF
+
+    # 9185 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF,NONMOVING TRAFFIC VIOL ATTACH,REGISTRATION LICENSE PLATE NOT,ASSIGNED
+
+    # 9240 - MOVING TRAFFIC VIOL KNOWINGLY DRIVE,WHILE LICE SUSPENDED REVOKED ,OUT-OF-COUNTY WARRANT/WAKULLA CO,FTA FOR DWLSR
+
+    # 9607 - NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 2ND OFF,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 9622 - OUT-OF-COUNTY WARRANT/PINELLAS,COUNTY/FTA/DRIVE WHILE LIC,SUSP/AFRYKE,FTA/DRIVING WHILE LICENSE SUSPENDED,OR REVOKED
+
+    # 9774 - OUT-OF-COUNTY WARRANT/WAKULLA,COUNTY SO/FTA-DWLSR/CASE,#16000231CTAXMX,NONMOVING TRAFFIC VIOL DRIVE WHILE LIC,SUSP 3RD OR SUBSQ OFF
+
+
+  SimCharges <- data %>% 
+    filter(!uid %in% OneCharge$uid) %>%
+    filter(uid %in% c(395, 548, 601, 916, 925, 1041, 1051,1148, 1233,1336, 1468, 1542, 1716, 1797, 1818,
+                      1917,2110,2121,2286,2381,2865,3424,3441,3448,3730,3773,4034,4069,4150,4174,4450, 4633,
+                      4656,4773,4817,4849,4920,5036,5407, 5654, 5715, 5890, 6010, 6040, 6140, 6187, 6223, 6307,
+                      6405, 6458, 6619, 6783, 6848, 7186, 7225, 7507, 7583, 7653, 7677, 7967,8189, 8374, 8392,
+                      8634, 9010, 9034, 9056, 9185, 9240, 9607, 9622, 9774)) %>%
     select(uid) %>%
     distinct()
-  
-  LIC_Data <- data_analysis %>%
-    filter(uid %in% LIC_ids$uid)
+                      
 
-  ## obtains IDs where (grepl "DWLS", data_analysis$charges_clean) == TRUE
+# Combine One charge and similar charges  to create "most likely" 
   
-  DWLS_ids <- data_analysis %>%
-    filter(grepl("DWLS", charges_clean)) %>%
-    select(uid) %>%
-    distinct()
+  dwls_high <- data %>%
+    filter(uid %in% OneCharge$uid | uid %in% SimCharges$uid)
 
-  DWLS_Data <- data_analysis %>%
-    filter(uid %in% DWLS_ids$uid)
+## Some Analysis 
   
-# Go through LIC_Data and weed out not really driving with license suspended people 
-  LIC_Data_Clean <- LIC_Data %>%
-    filter(!uid %in% c(23,51,55,90,168,214,262,284,304,355,377,405,
-                       475,512,513,526,545,555,559,573,592,597,602,
-                       699, 763, 777, 783, 819, 863, 935, 984, 1023,
-                       1025, 1111, 1124, 1140, 1141, 1143, 1178, 1205, 
-                       1281,1298, 1301, 1324, 1361, 1367, 1377, 1386,
-                       1418, 1457, 1461, 1476, 1513, 1526, 1533, 1546, 1559, 
-                       1567, 1572, 1575, 1599, 1633, 1645, 1660, 1692, 1693,
-                       1698, 1728, 1730, 1766, 1788, 1822, 1845, 1851, 1869,
-                       1870, 1886, 1923, 1956, 1957, 1961, 1969, 1970, 1984,
-                       1999, 2061, 2076, 2108, 2151, 2180, 2225, 2274, 2327,
-                       2331, 2332, 2380, 2392, 2442, 2448, 2455, 2460, 2470,
-                       2495, 2507, 2513, 2578, 2586, 2629, 2776, 2800, 2809, 
-                       2851, 2886, 2900, 2909, 2928, 2937, 2941, 3004, 3029,
-                       3041, 3043, 3071, 9870, 9832, 9776, 9733, 9720, 9712,
-                       9652, 9614, 9588, 9578, 9559, 9554, 9530, 9527, 9507,
-                       9492, 9466, 9454, 9436, 9430, 9420, 9379, 9353, 9345,
-                       9338, 9326, 9310, 9281, 9267, 9243, 9146, 9141, 9138,
-                       9131, 9130, 9125, 9111, 9105, 9085, 9075, 9062, 9000,
-                       8997, 8991, 8930, 8905, 8900, 8796, 8760, 8749, 8731,
-                       8711, 8645, 8586, 8568, 8549, 8556, 8509, 8472, 8470,
-                       8425, 8402, 8391, 8382))
+  # Number of One Charge
+  
+  length(unique(OneCharge$uid)) #411 people
+  
+  # Number of "DWLS only" charges 
+  
+  length(unique(dwls_high$uid)) # around 481 people 
+  
+  # Number of Total 
+  
+  length(unique(data$uid)) #around 1091 
+  
+  # One Charge - people 
+  
+  OneChargeData<-filter(data_short, uid %in% OneCharge$uid)
+  
+  nrow(OneChargeData[! is.na(OneChargeData$In.Jail),]) #116 
+  
+  nrow(OneChargeData[OneChargeData$Last.Booking.Date == OneChargeData$Last.Release.Date,]) #364 
 
-# Or alternative way
+    # subsequent 
+      
+      #Create indicator variable for subsequent arrests 
+      
+      OneChargeData <- OneChargeData %>% mutate(Subsequent = ifelse(grepl("3RD | 2ND | HABIT", charges_clean),1,0))
+    
+    # in jail and subsequent  
+    
+      nrow(OneChargeData[!is.na(OneChargeData$In.Jail) & OneChargeData$Subsequent==1 ,]) #29
+    
+    #Create indicator variable for subsequent arrests 
+      
+      OneChargeData <- OneChargeData %>% mutate(FTA = ifelse(grepl("FTA", charges_clean),1,0))  
+    
+    # in jail and FTA 
+      
+      nrow(OneChargeData[!is.na(OneChargeData$In.Jail) & OneChargeData$FTA==1 ,]) #50
+      
+  # Total People 
   
-  ## Obtain IDs where grepl("LIC", data_analysis$charges_clean) == TRUE
-  # (?=.*match this expression)(?=.*match this too) - non consuming regular expression
+  nrow(data_short[! is.na(data_short$In.Jail),]) #614 
   
-  LIC_ids_2 <- data_analysis %>%
-    filter(grepl("(?=.*LIC)(?=.*DRIV)", charges_clean, perl = T)) %>%
-    select(uid) %>%
-    distinct()
+  nrow(data_short[!is.na(data_short$Last.Booking.Date == data_short$Last.Release.Date),]) #477
   
-  LIC_Data_2 <- data_analysis %>%
-    filter(uid %in% LIC_ids_2$uid)
+    # subsequent 
   
+      #Create indicator variable for subsequent arrests 
   
+      data_short <- data_short %>% mutate(Subsequent = ifelse(grepl("3RD | 2ND | HABIT", charges_clean),1,0))
+  
+    # in jail and subsequent  
+  
+      nrow(data_short[!is.na(data_short$In.Jail) & data_short$Subsequent==1 ,]) #179
+  
+    #Create indicator variable for subsequent arrests 
+  
+      data_short <- data_short %>% mutate(FTA = ifelse(grepl("FTA", charges_clean),1,0))  
+  
+    # in jail and FTA 
+  
+      nrow(data_short[!is.na(data_short$In.Jail) & data_short$FTA==1 ,]) #190 
   
