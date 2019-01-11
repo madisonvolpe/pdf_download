@@ -1,9 +1,9 @@
 library(tidyverse)
 
 cleaningcharges <- function(df){
-  df[,] <- lapply(df[,], as.character)
+  
   # extract counts
-  df <- mutate(df, counts = str_extract_all(pattern = "[0-9]{1}+[L,F,T,S,D]", df[,'Charges']))
+  df <- mutate(df, counts = str_extract_all(pattern = "[0-9]{1}+[L,F,T]", df[,'Charges']))
   
   # extract arrest agencies 
   agencies <- paste(c("LEON COUNTY SHERIFF", "FLORIDA STATE UNIVERSITY", "STATE HIGHWAY PATROL",
@@ -15,7 +15,7 @@ cleaningcharges <- function(df){
   # remove charge counts and agencies from charges section
   
   #charge counts 
-  df <- mutate(df, charges_clean= gsub("([0-9]{1})+([L,F,T,S,D])", "\\2",df[,'Charges']))
+  df <- mutate(df, charges_clean= gsub("([0-9]{1})+([L,F,T])", "\\2",df[,'Charges']))
   
   # agencies and stop words 
   agencies_stopwords<- paste(c("LEON COUNTY SHERIFF", "FLORIDA STATE UNIVERSITY", "STATE HIGHWAY PATROL",

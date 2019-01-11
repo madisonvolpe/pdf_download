@@ -49,7 +49,8 @@ for(i in 1:nrow(bookings)){
 bookings <- bookings %>% drop_na(`FULL NAME`)
 
 ## Clean 
-source("CleaningCharges.R")
+source("file:///H:/Public/Justice Program/Reports and Pubs/Crim/Arnold Foundation Fees and Fines (Phase II)/Data/Cost Data/Florida/Leon_County/JailCosts/Cleaning/CleaningCharges.R")
+
 bookings<-cleaningcharges(bookings)
 
 for(i in 1:nrow(bookings)){
@@ -64,4 +65,5 @@ bookings$charges_clean <- gsub(",$", "", bookings$charges_clean)
 bookings$charges_clean <- gsub(",,", ",", bookings$charges_clean)
 
 ## save a clean version 
+setwd("H:/Public/Justice Program/Reports and Pubs/Crim/Arnold Foundation Fees and Fines (Phase II)/Data/Cost Data/Florida/Leon_County/JailCosts/")
 write_csv(bookings, "bookings_clean.csv")
